@@ -1,4 +1,3 @@
-<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -42,6 +41,13 @@
       color: white;
       cursor: pointer;
     }
+    .input-container input[type="file"] {
+      background-color: #333;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
     .message {
       display: flex;
       margin-bottom: 10px;
@@ -83,12 +89,15 @@
   </style>
 </head>
 <body>
-
-  <div class="chat-container" id="chat"></div>
+  <div class="chat-container" id="chat">
+    
+    </div>
+  
 
   <div class="input-container">
     <textarea type="text" id="messageInput" placeholder="Type your message..."></textarea>
     <button id="sendButton">Send</button>
+    <input type="file" id="fileInput">
   </div>
 
   <!-- Marked.js CDN -->
@@ -145,39 +154,103 @@
 
       scrollToBottom();
     }
-
     function addMessageToDOM(msg) {
-      const chatContainer = document.getElementById('chat');
+  const chatContainer = document.getElementById('chat');
 
-      const messageDiv = document.createElement('div');
-      messageDiv.className = 'message';
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'message';
 
-      const img = document.createElement('img');
-      img.className = 'profile-pic';
-      img.src = msg.profile_pic || 'https://lh3.googleusercontent.com/a/ACg8ocI-0YiWJ8-YTHcJFBggJHUX5te0knBBG-qyIaFyTRDU0GS-qE4=s432-c-no';
-      messageDiv.appendChild(img);
+  const img = document.createElement('img');
+  img.className = 'profile-pic';
+  img.src = msg.profile_pic || 'https://lh3.googleusercontent.com/a/ACg8ocI-0YiWJ8-YTHcJFBggJHUX5te0knBBG-qyIaFyTRDU0GS-qE4=s432-c-no';
+  messageDiv.appendChild(img);
 
-      const bubble = document.createElement('div');
-      bubble.className = 'bubble';
-      if (!msg.is_read) bubble.classList.add('unread');
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  if (!msg.is_read) bubble.classList.add('unread');
 
-      const sender = document.createElement('div');
-      sender.className = 'sender-name';
-      sender.textContent = msg.sender_name || 'Unknown';
-      bubble.appendChild(sender);
+  const sender = document.createElement('div');
+  sender.className = 'sender-name';
+  sender.textContent = msg.sender_name || 'Unknown';
+  bubble.appendChild(sender);
 
-      const content = document.createElement('div');
-      content.innerHTML = marked.parse(msg.message || 'No content'); // Markdown rendering
-      bubble.appendChild(content);
+  const content = document.createElement('div');
+  
+  if (msg.message && msg.message.startsWith("encrypted - ")) {
+    try {
+      // Parse the content as JSON to get the actual Base64 string
+      const encryptedData = JSON.parse(msg.message.replace("encrypted - ", ""));
+      
+      // Now, get only the Base64 content and decode it
+      let base64Content = atob(encryptedData.content);
 
-      const time = document.createElement('div');
-      time.className = 'timestamp';
-      time.textContent = formatTime(msg.created_at || msg.updated_at || new Date());
-      bubble.appendChild(time);
+      // Remove extra 'data:image/jpeg;base64,' prefix if it appears twice
+      if (base64Content.startsWith('data:image/jpeg;base64,data:image/jpeg;base64,')) {
+        base64Content = base64Content.replace('data:image/jpeg;base64,data:image/jpeg;base64,', 'data:image/jpeg;base64,');
+      }
 
-      messageDiv.appendChild(bubble);
-      chatContainer.appendChild(messageDiv);
+      // Decode Base64 content
+      const decodedContent = decodeBase64(base64Content);
+
+      // If it's an image, display it
+      if (encryptedData.fileName && encryptedData.fileName.match(/\.(jpg|jpeg|png|gif)$/)) {
+        const imgSrc = decodedContent;  // Create correct data URL for image
+        content.innerHTML = `
+          <p><strong>File:</strong> ${encryptedData.fileName}</p>
+          <p><strong>Size:</strong> ${formatFileSize(encryptedData.fileSize)}</p>
+          <img src="${imgSrc}" alt="File preview" style="max-width: 100%; height: auto;">
+        `;
+      } else {
+        // Handle other file types (you can modify this if handling PDFs, text files, etc.)
+        content.innerHTML = `
+          <p><strong>File:</strong> ${encryptedData.fileName}</p>
+          <p><strong>Size:</strong> ${formatFileSize(encryptedData.fileSize)}</p>
+          <a href="${decodedContent}" download="${encryptedData.fileName}" style="color: #6200ea;">Click to download</a>
+        `;
+      }
+    } catch (error) {
+      console.error('Error decoding the file:', error);
+      content.innerHTML = `<p>Error decoding the file content. Please try again.</p>`;
     }
+  } else {
+    // For regular text message
+    content.innerHTML = marked.parse(msg.message || 'No content');
+  }
+
+  bubble.appendChild(content);
+
+  const time = document.createElement('div');
+  time.className = 'timestamp';
+  time.textContent = formatTime(msg.created_at || msg.updated_at || new Date());
+  bubble.appendChild(time);
+
+  messageDiv.appendChild(bubble);
+  chatContainer.appendChild(messageDiv);
+}
+
+// Base64 decode function
+function decodeBase64(base64String) {
+  try {
+    const decodedString = base64String;  // Use atob to decode Base64
+    return decodedString;
+  } catch (e) {
+    console.error('Error decoding Base64 string:', e);
+    return null;
+  }
+}
+
+// Format file size to human-readable format
+function formatFileSize(bytes) {
+  if (bytes < 1024) {
+    return bytes + ' B';
+  } else if (bytes < 1024 * 1024) {
+    return (bytes / 1024).toFixed(2) + ' KB';
+  } else if (bytes < 1024 * 1024 * 1024) {
+    return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+  } else {
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  }
+}
 
     function scrollToBottom() {
       const chatContainer = document.getElementById('chat');
@@ -187,21 +260,43 @@
     async function sendMessage() {
       const input = document.getElementById("messageInput");
       const text = input.value.trim();
-      if (!text) return; // Do nothing if empty
+      const fileInput = document.getElementById("fileInput");
+      const file = fileInput.files[0];
 
-      const payload = {
-        message: text,
-        sender_name: "Vaishal", // you can make dynamic too!
-        profile_pic: "",
-        is_read: false
-      };
+      if (!text && !file) return;
+
+      let payload = {};
+
+      if (file) {
+        // Disable text input and file input after file is selected
+        input.disabled = true;
+        fileInput.disabled = true;
+
+        // Encrypt file and send with metadata inside the encrypted value
+        const encryptedFileContent = `encrypted - ${await encryptFile(file, file.name, file.size)}`;
+        payload = {
+          message: encryptedFileContent,
+          sender_name: "Vaishal",
+          profile_pic: "",
+          is_read: false,
+          file_url: ''  // The file is embedded in the encrypted content, so no need for separate URL
+        };
+      } else {
+        payload = {
+          message: text,
+          sender_name: "Vaishal",
+          profile_pic: "",
+          is_read: false,
+          file_url: null
+        };
+      }
 
       try {
-        const response = await fetch('https://app.nocodb.com/api/v2/tables/m6pjpqc5i5znvjt/records', {
+        const response = await fetch(nocodbURL, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "xc-token": "-0Czyt0G8ZMbZC_peal62M7xR1kHzCyXKq35mKn8"
+            "xc-token": token
           },
           body: JSON.stringify(payload)
         });
@@ -209,7 +304,10 @@
         if (response.ok) {
           console.log('Message sent!');
           input.value = ""; // Clear input box
-          loadChats();   // Reload chat after sending
+          fileInput.value = ""; // Clear file input
+          input.disabled = false; // Enable text input again
+          fileInput.disabled = false; // Enable file input again
+          loadChats();
         } else {
           console.error("Failed to send message", await response.text());
         }
@@ -218,23 +316,32 @@
       }
     }
 
-    async function loadChats() {
-      const messages = await fetchChats();
-      const grouped = groupByDate(messages);
-      renderChats(grouped);
+    async function encryptFile(file, fileName, fileSize) {
+      // Example: Encrypting file content and including metadata
+      const reader = new FileReader();
+      return new Promise((resolve) => {
+        reader.onloadend = () => {
+          // Simulating encryption by Base64 encoding file and metadata
+          const encryptedContent = {
+            fileName,
+            fileSize,
+            content: btoa(reader.result)  // Base64 encode the file content as an example of "encryption"
+          };
+          resolve(JSON.stringify(encryptedContent));  // Returning the JSON as an encrypted string
+        };
+        reader.readAsDataURL(file);
+      });
     }
 
-    document.getElementById('sendButton').addEventListener('click', sendMessage);
-    document.getElementById('messageInput').addEventListener('keypress', function (e) {
-      if (e.key === 'Enter') {
-        sendMessage();
-      }
-    });
+    document.getElementById("sendButton").addEventListener("click", sendMessage);
 
-    loadChats();
+    async function loadChats() {
+      const messages = await fetchChats();
+      const groupedMessages = groupByDate(messages);
+      renderChats(groupedMessages);
+    }
 
-    // OPTIONAL: Auto refresh chat every 10 seconds
-    setInterval(loadChats, 10000);
+    loadChats(); // Load existing chats on page load
   </script>
 </body>
 </html>
